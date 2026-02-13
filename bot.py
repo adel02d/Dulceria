@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get("TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-# Usamos database.json ya que no tenemos disco persistente
+# Usamos database.json ya que no tenemos disco persistente gratuito
 DATA_FILE = os.environ.get("DATA_FILE", "database.json") 
 
 # --- TABLA DE ZONAS Y PRECIOS DE MENSAJERÍA ---
@@ -568,7 +568,7 @@ async def admin_clear_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data(data)
     await query.edit_message_text("🗑️ Menú eliminado.")
 
-# --- MAIN ---
+# --- MAIN (LÓGICA DE DESPLIEGUE WEBHOOK) ---
 
 def main():
     application = Application.builder().token(TOKEN).build()
@@ -582,8 +582,6 @@ def main():
     application.add_handler(CallbackQueryHandler(view_cart, pattern="^view_cart$"))
     application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
     application.add_handler(CallbackQueryHandler(my_orders, pattern="^my_orders$"))
-    
-    # CORRECCIÓN AQUÍ: Línea corregida sin el error de sintaxis
     application.add_handler(CallbackQueryHandler(select_zone_start, pattern="^change_zone$"))
 
     # Client Checkout Conversation
@@ -625,8 +623,24 @@ def main():
     # Start command
     application.add_handler(CommandHandler("start", start))
 
-    print("Bot Dolezza 3.0 (Corregido) iniciado...")
-    application.run_polling()
+    # --- CONFIGURACIÓN WEBHOOK (PARA RENDER GRATIS) ---
+    port = int(os.environ.get("PORT", 8443))
+    webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
+    
+    if webhook_url:
+        # ESTAMOS EN RENDER -> Usar Webhook
+        webhook_url = f"{webhook_url}/telegram-webhook"
+        print(f"🚀 Iniciando modo WEBHOOK en: {webhook_url}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            url_path="telegram-webhook",
+            webhook_url=webhook_url
+        )
+    else:
+        # ESTAMOS EN LOCAL -> Usar Polling
+        print("🖥️ Iniciando modo POLLING (Local)...")
+        application.run_polling()
 
 if __name__ == "__main__":
     main()
