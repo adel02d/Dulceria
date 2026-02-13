@@ -9,11 +9,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get("TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-# Usamos database.json ya que no tenemos disco persistente gratuito
 DATA_FILE = os.environ.get("DATA_FILE", "database.json") 
 
 # --- TABLA DE ZONAS Y PRECIOS DE MENSAJERÍA ---
-# Precios con el tope de 1000 CUP aplicado
 ZONES_PRICES = {
     "Centro Habana": 720,
     "Vedado (hasta Paseo)": 780,
@@ -65,6 +63,17 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
+def get_balance():
+    """Calcula el balance total de pedidos entregados"""
+    data = load_data()
+    total_sales = 0
+    delivered_count = 0
+    for order in data["orders"]:
+        if order["status"] == "REALIZADO":
+            total_sales += order["total"]
+            delivered_count += 1
+    return total_sales, delivered_count
+
 # --- UTILIDADES ---
 
 def es_admin(user_id):
@@ -92,10 +101,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if es_admin(uid):
         keyboard = [
             [InlineKeyboardButton("➕ Agregar Producto", callback_data="admin_add_start")],
-            [InlineKeyboardButton("🗑️ Borrar Menú", callback_data="admin_clear")],
-            [InlineKeyboardButton("📦 Gestionar Pedidos", callback_data="admin_orders")]
+            [InlineKeyboardButton("📦 Gestionar Pedidos", callback_data="admin_orders")],
+            [InlineKeyboardButton("📊 Ver Balance", callback_data="admin_balance")],
+            [InlineKeyboardButton("🗑️ Borrar Menú", callback_data="admin_clear")]
         ]
-        await update.message.reply_text("👋 Admin Panel de Dolezza", reply_markup=InlineKeyboardMarkup(keyboard))
+        if update.message:
+            await update.message.reply_text("👋 Admin Panel de DolceZZa", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            # Si viene de un callback (reiniciar)
+            await update.callback_query.edit_message_text("👋 Admin Panel de DolceZZa", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     # Si es cliente, verificar zona
@@ -106,7 +120,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def select_zone_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra las zonas para seleccionar"""
-    # Crear botones de zonas en grupos de 2 columnas
     keyboard = []
     zonas_list = list(ZONES_PRICES.keys())
     for i in range(0, len(zonas_list), 2):
@@ -117,9 +130,13 @@ async def select_zone_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append(row)
     
     if update.message:
-        await update.message.reply_text("📍 **Bienvenido a Dolezza** 🍬\n\nPara calcular tu mensajería correctamente, por favor selecciona tu zona:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text("📍 **Bienvenido a DolceZZa** 🍬\n\nPara calcular tu mensajería correctamente, por favor selecciona tu zona:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     else:
-        await update.callback_query.edit_message_text("📍 **Bienvenido a Dolezza** 🍬\n\nPara calcular tu mensajería correctamente, por favor selecciona tu zona:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        # Limpia el mensaje anterior si existe
+        try:
+            await update.callback_query.edit_message_text("📍 **Bienvenido a DolceZZa** 🍬\n\nPara calcular tu mensajería correctamente, por favor selecciona tu zona:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        except:
+            pass
 
 async def set_zone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -137,16 +154,16 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(f"🍬 Ver Menú y Agregar", callback_data="view_menu")],
         [InlineKeyboardButton(f"🛒 Mi Carrito ({cart_count})", callback_data="view_cart")],
         [InlineKeyboardButton(f"📦 Mis Pedidos", callback_data="my_orders")],
-        [InlineKeyboardButton(f"📍 Zona: {zone_name}", callback_data="change_zone")]
+        [InlineKeyboardButton(f"📍 Cambiar Zona", callback_data="change_zone")]
     ]
     
     try:
         if update.callback_query:
-            await update.callback_query.edit_message_text(f"🍭 *Dolezza - Dulcería*\n\nZona actual: {zone_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.callback_query.edit_message_text(f"🍭 *DolceZZa - Dulcería*\n\nZona actual: {zone_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         else:
-            await update.message.reply_text(f"🍭 *Dolezza - Dulcería*\n\nZona actual: {zone_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(f"🍭 *DolceZZa - Dulcería*\n\nZona actual: {zone_name}", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     except:
-        pass # Evitar error si el mensaje es el mismo
+        pass
 
 # --- MENÚ Y CARRITO ---
 
@@ -156,7 +173,7 @@ async def view_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = load_data()
     if not data["menu"]:
-        await query.edit_message_text("🕒 No hay dulces disponibles hoy.")
+        await query.edit_message_text("🕒 No hay dulces disponibles hoy.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="back_main")]]))
         return
 
     keyboard = []
@@ -209,7 +226,6 @@ async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'cart' not in context.user_data:
         context.user_data['cart'] = []
     
-    # Verificar si ya existe para aumentar cantidad
     found = False
     for item in context.user_data['cart']:
         if item['id'] == prod_id:
@@ -226,7 +242,6 @@ async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
     
     await query.edit_message_text(f"✅ *{product['name']}* agregado al carrito.", parse_mode="Markdown")
-    # Volver al menú automáticamente tras 1.5 seg (simulado con mensaje estático)
     keyboard = [[InlineKeyboardButton("🔙 Volver al Menú", callback_data="view_menu")]]
     await query.edit_message_reply_markup(InlineKeyboardMarkup(keyboard))
 
@@ -284,7 +299,6 @@ async def checkout_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def checkout_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['order_phone'] = update.message.text
     
-    # Calcular totales
     cart = context.user_data.get('cart', [])
     items_text, subtotal = get_cart_summary(cart)
     
@@ -298,7 +312,6 @@ async def checkout_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'total': total_final
     }
     
-    # ENVIAR PRE-TICKET
     text = (
         f"🧾 *PRE-TICKET DE PEDIDO*\n\n"
         f"👤 *Cliente:* {context.user_data['order_name']}\n"
@@ -325,7 +338,6 @@ async def confirm_order_accept(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     
-    # Generar orden final
     cart = context.user_data.get('cart', [])
     totals = context.user_data.get('order_totals')
     order_id = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -345,18 +357,14 @@ async def confirm_order_accept(update: Update, context: ContextTypes.DEFAULT_TYP
         "date": datetime.now().strftime("%d/%m/%Y %H:%M")
     }
     
-    # Guardar en DB
     data = load_data()
     data["orders"].append(new_order)
     save_data(data)
     
-    # Limpiar carrito
     context.user_data['cart'] = []
     
-    # Avisar al cliente
-    await query.edit_message_text(f"✅ *Pedido Confirmado!*\n\nTu pedido #{order_id} ha sido enviado a Dolezza.\nEspera nuestra confirmación.", parse_mode="Markdown")
+    await query.edit_message_text(f"✅ *Pedido Confirmado!*\n\nTu pedido #{order_id} ha sido enviado a DolceZZa.\nEspera nuestra confirmación.", parse_mode="Markdown")
     
-    # Enviar TICKET FINAL AL ADMIN
     items_text, _ = get_cart_summary(cart)
     admin_text = (
         f"🆕 *NUEVO PEDIDO CONFIRMADO* #{order_id}\n\n"
@@ -370,7 +378,6 @@ async def confirm_order_accept(update: Update, context: ContextTypes.DEFAULT_TYP
         f"💰 *TOTAL COBRAR: {new_order['total']} CUP*"
     )
     
-    # Botones para el admin
     admin_keyboard = [
         [InlineKeyboardButton("✅ Aceptar Pedido", callback_data=f"adm_accept_{order_id}")],
         [InlineKeyboardButton("❌ Rechazar Pedido", callback_data=f"adm_reject_{order_id}")]
@@ -390,7 +397,6 @@ async def confirm_order_reject(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Pedido cancelado. Volviendo al menú...")
-    # No limpiamos el carrito por si quiere modificar algo
     await main_menu(update, context)
 
 async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -404,7 +410,6 @@ async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("No has realizado pedidos aún.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="back_main")]]))
         return
     
-    # Mostrar el último pedido
     text = "📦 *Tus Pedidos Recientes:*\n\n"
     for o in reversed(my_orders_list[-3:]):
         text += f"🧾 *#{o['order_id']}* - {o['date']}\n"
@@ -454,7 +459,6 @@ async def admin_skip_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.delete_message()
-    # Simulamos mensaje para reutilizar función
     class DummyMsg:
         def reply_text(self, text, **kwargs):
             pass 
@@ -471,18 +475,22 @@ async def save_new_product(context, photo_id, message_obj):
     }
     data["menu"].append(new_item)
     save_data(data)
-    await message_obj.reply_text(f"✅ Producto guardado:\n{new_item['name']} - {new_item['price']} CUP")
+    
+    # Botón para volver al menú
+    keyboard = [[InlineKeyboardButton("🔙 Menú Admin", callback_data="start")]]
+    await message_obj.reply_text(f"✅ Producto guardado en DolceZZa:\n{new_item['name']} - {new_item['price']} CUP", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_orders_mgmt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     data = load_data()
-    # Filtrar pedidos pendientes o aceptados (activos)
+    # Solo pedidos pendientes o aceptados (Los realizados ya no salen aquí)
     active_orders = [o for o in data["orders"] if o["status"] in ["PENDIENTE", "ACEPTADO"]]
     
     if not active_orders:
-        await query.edit_message_text("No hay pedidos activos por gestionar.")
+        keyboard = [[InlineKeyboardButton("🔙 Menú Admin", callback_data="start")]]
+        await query.edit_message_text("No hay pedidos activos por gestionar.", reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
     # Mostrar el más antiguo primero
@@ -515,7 +523,6 @@ async def admin_orders_mgmt(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🏁 Marcar Realizado/Entregado", callback_data=f"adm_done_{o['order_id']}")
         ])
     
-    # Botón para ver siguiente si hay más
     if len(active_orders) > 1:
         keyboard.append([InlineKeyboardButton("⏭️ Siguiente Pedido", callback_data="admin_orders")])
         
@@ -535,10 +542,11 @@ async def admin_action_order(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not order: return
     
     msg_cliente = ""
+    reset_user = False
     
     if action == "accept":
         order["status"] = "ACEPTADO"
-        msg_cliente = f"✅ *Tu pedido #{order_id} ha sido ACEPTADO.*\nEstamos preparando tu pedido para enviarlo."
+        msg_cliente = f"✅ *Tu pedido #{order_id} ha sido ACEPTADO.*\nEstamos preparando tu pedido para enviarlo desde DolceZZa."
         admin_msg = "Pedido Aceptado."
     elif action == "reject":
         order["status"] = "RECHAZADO"
@@ -546,19 +554,31 @@ async def admin_action_order(update: Update, context: ContextTypes.DEFAULT_TYPE)
         admin_msg = "Pedido Rechazado."
     elif action == "done":
         order["status"] = "REALIZADO"
-        msg_cliente = f"🏁 *Tu pedido #{order_id} ha sido ENTREGADO/REALIZADO.*\n¡Gracias por comprar en Dolezza! 🍬"
+        msg_cliente = f"🏁 *Tu pedido #{order_id} ha sido ENTREGADO.*\n¡Gracias por comprar en DolceZZa! 🍬"
         admin_msg = "Pedido Marcado como Realizado."
+        reset_user = True # Indicador para reiniciar el chat del usuario
     
     save_data(data)
     
     # Notificar cliente
     try:
-        await context.bot.send_message(chat_id=order["user_id"], text=msg_cliente, parse_mode="Markdown")
+        user_keyboard = None
+        if reset_user:
+            # Si el pedido se entregó, enviar botón para reiniciar
+            user_keyboard = [[InlineKeyboardButton("🔄 Iniciar Nuevo Pedido", callback_data="user_reset")]]
+        
+        await context.bot.send_message(
+            chat_id=order["user_id"], 
+            text=msg_cliente, 
+            reply_markup=InlineKeyboardMarkup(user_keyboard) if user_keyboard else None,
+            parse_mode="Markdown"
+        )
     except:
         pass
         
     # Actualizar vista admin
-    await query.edit_message_text(f"{admin_msg}\n\nPresiona 'Siguiente' o vuelve al menú.")
+    keyboard = [[InlineKeyboardButton("🔙 Menú Admin", callback_data="start")]]
+    await query.edit_message_text(f"{admin_msg}\n\nPresiona 'Menú Admin' para volver.", reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def admin_clear_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -566,9 +586,27 @@ async def admin_clear_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = load_data()
     data["menu"] = []
     save_data(data)
-    await query.edit_message_text("🗑️ Menú eliminado.")
+    
+    keyboard = [[InlineKeyboardButton("🔙 Menú Admin", callback_data="start")]]
+    await query.edit_message_text("🗑️ Menú eliminado de DolceZZa.", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- MAIN (LÓGICA DE DESPLIEGUE WEBHOOK) ---
+async def admin_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    total, count = get_balance()
+    
+    text = (
+        f"📊 *Balance de Ventas - DolceZZa*\n\n"
+        f"🏁 Pedidos Entregados: {count}\n"
+        f"💰 Total Recaudado: {total} CUP\n\n"
+        f"*(Solo se cuentan pedidos con estado 'REALIZADO')*"
+    )
+    
+    keyboard = [[InlineKeyboardButton("🔙 Menú Admin", callback_data="start")]]
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+# --- MAIN ---
 
 def main():
     application = Application.builder().token(TOKEN).build()
@@ -583,6 +621,9 @@ def main():
     application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
     application.add_handler(CallbackQueryHandler(my_orders, pattern="^my_orders$"))
     application.add_handler(CallbackQueryHandler(select_zone_start, pattern="^change_zone$"))
+    
+    # Handler para reinicio manual de usuario
+    application.add_handler(CallbackQueryHandler(start, pattern="^user_reset$"))
 
     # Client Checkout Conversation
     checkout_conv = ConversationHandler(
@@ -603,6 +644,7 @@ def main():
     # Admin Flows
     application.add_handler(CallbackQueryHandler(admin_clear_menu, pattern="^admin_clear$"))
     application.add_handler(CallbackQueryHandler(admin_orders_mgmt, pattern="^admin_orders$"))
+    application.add_handler(CallbackQueryHandler(admin_balance, pattern="^admin_balance$"))
     application.add_handler(CallbackQueryHandler(admin_action_order, pattern="^adm_(accept|reject|done)_"))
 
     # Admin Add Product Conversation
@@ -628,7 +670,6 @@ def main():
     webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
     
     if webhook_url:
-        # ESTAMOS EN RENDER -> Usar Webhook
         webhook_url = f"{webhook_url}/telegram-webhook"
         print(f"🚀 Iniciando modo WEBHOOK en: {webhook_url}")
         application.run_webhook(
@@ -638,7 +679,6 @@ def main():
             webhook_url=webhook_url
         )
     else:
-        # ESTAMOS EN LOCAL -> Usar Polling
         print("🖥️ Iniciando modo POLLING (Local)...")
         application.run_polling()
 
