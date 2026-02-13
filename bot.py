@@ -4,15 +4,16 @@ import json
 import uuid
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler, PrefixHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, ConversationHandler
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get("TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID"))
-DATA_FILE = os.environ.get("DATA_FILE", "database.json")
+# Usamos database.json ya que no tenemos disco persistente
+DATA_FILE = os.environ.get("DATA_FILE", "database.json") 
 
 # --- TABLA DE ZONAS Y PRECIOS DE MENSAJERÍA ---
-# Ya aplicamos el tope de 1000 CUP según tu tabla
+# Precios con el tope de 1000 CUP aplicado
 ZONES_PRICES = {
     "Centro Habana": 720,
     "Vedado (hasta Paseo)": 780,
@@ -20,13 +21,13 @@ ZONES_PRICES = {
     "Habana Vieja": 660,
     "Cerro": 600,
     "Nuevo Vedado": 840,
-    "Playa (Puente – Calle 60)": 1000, # Tope aplicado
-    "Playa (Calle 60 – Paradero)": 1000, # Tope aplicado
-    "Siboney": 1000, # Tope aplicado
-    "Jaimanita": 1000, # Tope aplicado
-    "Santa Fe": 1000, # Tope aplicado
+    "Playa (Puente – Calle 60)": 1000, 
+    "Playa (Calle 60 – Paradero)": 1000, 
+    "Siboney": 1000, 
+    "Jaimanita": 1000, 
+    "Santa Fe": 1000, 
     "Marianao (ITM)": 960,
-    "Marianao (100 y 51)": 1000, # Tope aplicado
+    "Marianao (100 y 51)": 1000, 
     "Boyeros (Aeropuerto)": 600,
     "Arroyo Naranjo (Los Pinos)": 300,
     "Arroyo Naranjo (Mantilla)": 360,
@@ -37,8 +38,8 @@ ZONES_PRICES = {
     "San Miguel del Padrón (Virgen del Camino)": 720,
     "Cotorro (Puente)": 900,
     "Habana del Este (Regla)": 780,
-    "Habana del Este (Guanabo)": 1000, # Tope aplicado
-    "Alamar (Zonas 9–11)": 1000 # Tope aplicado
+    "Habana del Este (Guanabo)": 1000, 
+    "Alamar (Zonas 9–11)": 1000 
 }
 
 # ESTADOS DE CONVERSACIÓN (ADMIN)
@@ -389,8 +390,7 @@ async def confirm_order_reject(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("❌ Pedido cancelado. Volviendo al menú...")
-    # No limpiamos el carrito por si quiere modificar algo, o podríamos limpiarlo.
-    # Aquí lo dejamos tal cual.
+    # No limpiamos el carrito por si quiere modificar algo
     await main_menu(update, context)
 
 async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -404,7 +404,7 @@ async def my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("No has realizado pedidos aún.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Volver", callback_data="back_main")]]))
         return
     
-    # Mostrar el último pedido (o los últimos 3)
+    # Mostrar el último pedido
     text = "📦 *Tus Pedidos Recientes:*\n\n"
     for o in reversed(my_orders_list[-3:]):
         text += f"🧾 *#{o['order_id']}* - {o['date']}\n"
@@ -457,7 +457,6 @@ async def admin_skip_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Simulamos mensaje para reutilizar función
     class DummyMsg:
         def reply_text(self, text, **kwargs):
-            # Hack rápido para enviar mensaje desde callback
             pass 
     await save_new_product(context, None, DummyMsg())
     return ConversationHandler.END
@@ -560,7 +559,6 @@ async def admin_action_order(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     # Actualizar vista admin
     await query.edit_message_text(f"{admin_msg}\n\nPresiona 'Siguiente' o vuelve al menú.")
-    # Para simplificar, no recargamos el ticket completo para evitar loops, el admin tocará siguiente.
 
 async def admin_clear_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -584,7 +582,9 @@ def main():
     application.add_handler(CallbackQueryHandler(view_cart, pattern="^view_cart$"))
     application.add_handler(CallbackQueryHandler(clear_cart, pattern="^clear_cart$"))
     application.add_handler(CallbackQueryHandler(my_orders, pattern="^my_orders$"))
-    application.add_handler(CallbackQueryHandler(change_zone_start=select_zone_start, pattern="^change_zone$")) # Shortcut handler needed actually
+    
+    # CORRECCIÓN AQUÍ: Línea corregida sin el error de sintaxis
+    application.add_handler(CallbackQueryHandler(select_zone_start, pattern="^change_zone$"))
 
     # Client Checkout Conversation
     checkout_conv = ConversationHandler(
@@ -594,7 +594,7 @@ def main():
             CHK_ADDRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, checkout_address)],
             CHK_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, checkout_phone)],
         },
-        fallbacks=[CommandHandler("cancel", confirm_order_reject)], # Usar reject como cancel
+        fallbacks=[CommandHandler("cancel", confirm_order_reject)], 
     )
     application.add_handler(checkout_conv)
     
@@ -624,11 +624,8 @@ def main():
     
     # Start command
     application.add_handler(CommandHandler("start", start))
-    
-    # Callback for change zone button fix
-    application.add_handler(CallbackQueryHandler(select_zone_start, pattern="^change_zone$"))
 
-    print("Bot Dolezza 3.0 (Zonas & Pagos) iniciado...")
+    print("Bot Dolezza 3.0 (Corregido) iniciado...")
     application.run_polling()
 
 if __name__ == "__main__":
