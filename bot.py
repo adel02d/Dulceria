@@ -8,7 +8,14 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.environ.get("TOKEN")
-ADMIN_ID = int(os.environ.get("ADMIN_ID"))
+
+# --- CONFIGURACIÓN DE MULTIPLES ADMINS ---
+# Leemos la variable de entorno (ej: "123,456"), la separamos por comas y convertimos a enteros
+admins_str = os.environ.get("ADMIN_IDS")
+ADMIN_IDS = []
+if admins_str:
+    ADMIN_IDS = [int(id.strip()) for id in admins_str.split(",")]
+
 DATA_FILE = os.environ.get("DATA_FILE", "database.json") 
 
 # --- TABLA DE ZONAS Y PRECIOS DE MENSAJERÍA ---
@@ -72,7 +79,7 @@ def get_balance():
     return total_sales, delivered_count
 
 def es_admin(user_id):
-    return user_id == ADMIN_ID
+    return user_id in ADMIN_IDS
 
 def get_cart_summary(cart):
     total = 0
@@ -334,6 +341,7 @@ async def confirm_order_accept(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await query.edit_message_text(f"✅ *Pedido Enviado a DolceZZa*.\nEspera confirmación.", parse_mode="Markdown")
     
+    # --- NOTIFICAR A TODOS LOS ADMINS ---
     items_text, _ = get_cart_summary(cart)
     admin_text = (f"🆕 *PEDIDO #{order_id}*\n\n👤 {new_order['user_name']}\n📍 {new_order['zone']}\n🏠 {new_order['address']}\n📞 {new_order['user_phone']}\n\n"
                   f"{items_text}\n----------------\n🛵 Mensajería: {new_order['delivery_cost']} CUP\n💰 *TOTAL: {new_order['total']} CUP*")
@@ -342,10 +350,21 @@ async def confirm_order_accept(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("✅ Aceptar", callback_data=f"adm_accept_{order_id}")],
         [InlineKeyboardButton("❌ Rechazar", callback_data=f"adm_reject_{order_id}")]
     ]
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, reply_markup=InlineKeyboardMarkup(admin_keyboard), parse_mode="Markdown")
-    except:
-        pass
+    
+    # Enviar a cada ID en la lista ADMIN_IDS
+    if not ADMIN_IDS:
+        print("ADVERTENCIA: No hay administradores configurados en ADMIN_IDS")
+    else:
+        for admin_id in ADMIN_IDS:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=admin_text,
+                    reply_markup=InlineKeyboardMarkup(admin_keyboard),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"Error notificando al admin {admin_id}: {e}")
 
 async def confirm_order_reject(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
